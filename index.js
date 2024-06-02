@@ -128,6 +128,7 @@ async function run() {
     // Save a tasks data in db
     app.post("/tasks", async (req, res) => {
       const taskData = req.body;
+      taskData.createdAt = new Date();
       const result = await tasksCollection.insertOne(taskData);
       res.send(result);
     });
@@ -148,7 +149,10 @@ async function run() {
     app.get("/myTask/:email", async (req, res) => {
       const email = req.params.email;
       const query = { "taskCreator.email": email };
-      const result = await tasksCollection.find(query).toArray();
+      const options = {
+        sort: { createdAt: -1 }, // Sort by createdAt in descending order
+      };
+      const result = await tasksCollection.find(query, options).toArray();
       res.send(result);
     });
     app.delete("/tasks/:id", async (req, res) => {
