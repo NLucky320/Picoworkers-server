@@ -238,7 +238,19 @@ async function run() {
       const result = await submissionCollection.insertOne(submissionData);
       res.send(result);
     });
-
+    app.get("/submission", async (req, res) => {
+      const result = await submissionCollection.find().toArray();
+      res.send(result);
+    });
+    app.get("/mySubmission/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { worker_email: email };
+      const options = {
+        sort: { createdAt: -1 }, // Sort by createdAt in descending order
+      };
+      const result = await submissionCollection.find(query, options).toArray();
+      res.send(result);
+    });
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
