@@ -122,6 +122,32 @@ async function run() {
       const result = await userCollection.findOne({ email });
       res.send(result);
     });
+    app.get("/userStats", async (req, res) => {
+      try {
+        const users = await userCollection.find().toArray();
+        const totalUsers = users.length;
+        const totalCoins = users.reduce(
+          (sum, user) => sum + (user.coins || 0),
+          0
+        );
+
+        res.send({ totalUsers, totalCoins });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch user stats", error });
+      }
+    });
+    //update a user role
+    app.patch("/users/update/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = req.body;
+      const query = { email };
+      const updateDoc = {
+        $set: { ...user, timestamp: Date.now() },
+      };
+      const result = await userCollection.updateOne(query, updateDoc);
+      res.send(result);
+    });
+
     // get a admin info by email from db
     // app.get("/users/admin/:email", verifyToken, async (req, res) => {
     //   const email = req.params.email;
