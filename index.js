@@ -148,6 +148,20 @@ async function run() {
       res.send(result);
     });
 
+    app.delete("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      try {
+        const result = await userCollection.deleteOne({ email });
+        if (result.deletedCount === 1) {
+          res.send({ message: "User successfully deleted" });
+        } else {
+          res.status(404).send({ message: "User not found" });
+        }
+      } catch (error) {
+        res.status(500).send({ message: "Internal server error", error });
+      }
+    });
+
     // get a admin info by email from db
     // app.get("/users/admin/:email", verifyToken, async (req, res) => {
     //   const email = req.params.email;
