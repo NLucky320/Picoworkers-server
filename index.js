@@ -185,9 +185,7 @@ async function run() {
         $set: {
           detail: updatedTask.detail,
           title: updatedTask.title,
-          quantity: updatedTask.quantity,
-          price: updatedTask.price,
-          amount: updatedTask.amount,
+          info: updatedTask.info,
         },
       };
       const result = await tasksCollection.updateOne(filter, task, options);
