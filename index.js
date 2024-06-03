@@ -37,6 +37,13 @@ async function run() {
     const userCollection = client.db("picoworker").collection("users");
     const tasksCollection = client.db("picoworker").collection("tasks");
     const paymentCollection = client.db("picoworker").collection("payments");
+    const submissionCollection = client
+      .db("picoworker")
+      .collection("submission");
+    const withdrawCollection = client.db("picoworker").collection("withdraw");
+    const notificationCollection = client
+      .db("picoworker")
+      .collection("notification");
     // auth related api
     app.post("/jwt", async (req, res) => {
       const user = req.body;
@@ -83,7 +90,7 @@ async function run() {
     };
 
     //user collection
-    app.post("/users", async (req, res) => {
+    app.put("/users", async (req, res) => {
       const user = req.body;
       //install email if the user doesnot exist:
       //can do this by (1. email unique, 2. upsert, 3.simple checking)
@@ -92,7 +99,15 @@ async function run() {
       if (existingUser) {
         return res.send({ message: "user already exist", insertedId: null });
       }
-      const result = await userCollection.insertOne(user);
+      // save user for the first time
+      const options = { upsert: true };
+      const updateDoc = {
+        $set: {
+          ...user,
+          timestamp: Date.now(),
+        },
+      };
+      const result = await userCollection.updateOne(query, updateDoc, options);
       res.send(result);
     });
 
@@ -102,27 +117,27 @@ async function run() {
       res.send(result);
     });
     // get a user info by email from db
-    app.get("/user/:email", async (req, res) => {
+    app.get("/users/:email", async (req, res) => {
       const email = req.params.email;
       const result = await userCollection.findOne({ email });
       res.send(result);
     });
     // get a admin info by email from db
-    app.get("/users/admin/:email", verifyToken, async (req, res) => {
-      const email = req.params.email;
+    // app.get("/users/admin/:email", verifyToken, async (req, res) => {
+    //   const email = req.params.email;
 
-      if (email !== req.decoded.email) {
-        return res.status(403).send({ message: "forbidden access" });
-      }
+    //   if (email !== req.decoded.email) {
+    //     return res.status(403).send({ message: "forbidden access" });
+    //   }
 
-      const query = { email: email };
-      const user = await userCollection.findOne(query);
-      let admin = false;
-      if (user) {
-        admin = user?.role === "admin";
-      }
-      res.send({ admin });
-    });
+    //   const query = { email: email };
+    //   const user = await userCollection.findOne(query);
+    //   let admin = false;
+    //   if (user) {
+    //     admin = user?.role === "admin";
+    //   }
+    //   res.send({ admin });
+    // });
 
     //task collections
     // Save a tasks data in db
@@ -161,7 +176,21 @@ async function run() {
       const result = await tasksCollection.deleteOne(query);
       res.send(result);
     });
-
+    app.put("/tasks/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const options = { upsert: true };
+      const updatedTask = req.body;
+      const task = {
+        $set: {
+          detail: updatedTask.detail,
+          title: updatedTask.title,
+          quantity: updatedTask.quantity,
+        },
+      };
+      const result = await tasksCollection.updateOne(filter, task, options);
+      res.send(result);
+    });
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
