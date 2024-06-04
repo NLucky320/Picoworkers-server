@@ -122,6 +122,7 @@ async function run() {
       const result = await userCollection.findOne({ email });
       res.send(result);
     });
+
     app.get("/userStats", async (req, res) => {
       try {
         const users = await userCollection.find().toArray();
@@ -181,17 +182,75 @@ async function run() {
 
     //task collections
     // Save a tasks data in db
+    // app.post("/tasks", async (req, res) => {
+    //   const taskData = req.body;
+    //   taskData.createdAt = new Date();
+    //   const result = await tasksCollection.insertOne(taskData);
+    //   res.send(result);
+    // });
     app.post("/tasks", async (req, res) => {
       const taskData = req.body;
-      taskData.createdAt = new Date();
-      const result = await tasksCollection.insertOne(taskData);
-      res.send(result);
+      const creatorEmail = taskData.taskCreator.email;
+      const taskAmount = taskData.price;
+
+      try {
+        // Start a session for transaction
+        const session = client.startSession();
+        session.startTransaction();
+
+        // Insert the task data
+        const taskResult = await tasksCollection.insertOne(taskData, {
+          session,
+        });
+
+        // Update the user's coin balance
+        const userUpdateResult = await userCollection.updateOne(
+          { email: creatorEmail },
+          { $inc: { coins: -taskAmount } }, // Deduct the coins by task amount
+          { session }
+        );
+
+        if (userUpdateResult.modifiedCount !== 1) {
+          throw new Error("Failed to update user's coins");
+        }
+
+        // Commit the transaction
+        await session.commitTransaction();
+        session.endSession();
+
+        res.send({
+          message: "Task created and coins deducted",
+          taskId: taskResult.insertedId,
+        });
+      } catch (error) {
+        console.error("Task creation failed", error);
+        res.status(500).send({ message: "Task creation failed", error });
+      }
     });
 
     // Get all tasks from db
     app.get("/tasks", async (req, res) => {
-      const result = await tasksCollection.find().toArray();
-      res.send(result);
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 6;
+      const skip = (page - 1) * limit;
+
+      try {
+        const tasks = await tasksCollection
+          .find({})
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalTasks = await tasksCollection.countDocuments();
+        const totalPages = Math.ceil(totalTasks / limit);
+
+        res.send({
+          tasks,
+          totalPages,
+          currentPage: page,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch tasks", error });
+      }
     });
     // Get one tasks from db
     app.get("/tasks/:id", async (req, res) => {
@@ -231,6 +290,23 @@ async function run() {
       const result = await tasksCollection.updateOne(filter, task, options);
       res.send(result);
     });
+    app.patch("/tasks/:id/decreaseQuantity", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+
+      try {
+        const task = await tasksCollection.findOne(query);
+        if (task.quantity > 0) {
+          const updateDoc = { $inc: { quantity: -1 } };
+          const result = await tasksCollection.updateOne(query, updateDoc);
+          res.send(result);
+        } else {
+          res.status(400).send({ message: "Quantity cannot be less than 0" });
+        }
+      } catch (error) {
+        res.status(500).send({ message: "Failed to decrease quantity", error });
+      }
+    });
 
     //submission collection
     // app.post("/submission", async (req, res) => {
@@ -238,6 +314,7 @@ async function run() {
     //   const result = await submissionCollection.insertOne(submissionData);
     //   res.send(result);
     // });
+
     app.post("/submission", async (req, res) => {
       const submissionData = req.body;
       const workerEmail = submissionData.worker_email;
@@ -273,14 +350,83 @@ async function run() {
       const result = await submissionCollection.find().toArray();
       res.send(result);
     });
+
+    app.patch("/submission/:id", async (req, res) => {
+      const submissionId = req.params.id;
+      const { status } = req.body;
+
+      try {
+        const query = { _id: new ObjectId(submissionId) };
+        const update = { $set: { status } };
+        const result = await submissionCollection.updateOne(query, update);
+        res.send(result);
+      } catch (error) {
+        console.error("Error updating submission status:", error);
+        res
+          .status(500)
+          .send({ message: "Failed to update submission status", error });
+      }
+    });
     app.get("/mySubmission/:email", async (req, res) => {
       const email = req.params.email;
-      const query = { worker_email: email };
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 10;
+      const skip = (page - 1) * limit;
+
+      try {
+        const submissions = await submissionCollection
+          .find({ worker_email: email })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+        const totalSubmissions = await submissionCollection.countDocuments({
+          worker_email: email,
+        });
+        const totalPages = Math.ceil(totalSubmissions / limit);
+
+        res.send({
+          submissions,
+          totalPages,
+          currentPage: page,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch submissions", error });
+      }
+    });
+
+    app.get("/myWork/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { taskCreator_email: email };
       const options = {
         sort: { createdAt: -1 }, // Sort by createdAt in descending order
       };
       const result = await submissionCollection.find(query, options).toArray();
       res.send(result);
+    });
+    // app.get("/mySubmission/:email", async (req, res) => {
+    //   const email = req.params.email;
+    //   const query = { worker_email: email, status: "approved" }; // Filter for approved submissions
+    //   const options = {
+    //     sort: { createdAt: -1 }, // Sort by createdAt in descending order
+    //   };
+    //   const result = await submissionCollection.find(query, options).toArray();
+    //   res.send(result);
+    // });
+    app.get("/approvedSubmissions/:email", async (req, res) => {
+      const email = req.params.email;
+      try {
+        const result = await submissionCollection
+          .find({
+            worker_email: email,
+            status: "approved",
+          })
+          .toArray();
+        res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch approved submissions", error });
+      }
     });
 
     app.get("/submissionCount/:email", async (req, res) => {
