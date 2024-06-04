@@ -233,11 +233,42 @@ async function run() {
     });
 
     //submission collection
+    // app.post("/submission", async (req, res) => {
+    //   const submissionData = req.body;
+    //   const result = await submissionCollection.insertOne(submissionData);
+    //   res.send(result);
+    // });
     app.post("/submission", async (req, res) => {
       const submissionData = req.body;
-      const result = await submissionCollection.insertOne(submissionData);
-      res.send(result);
+      const workerEmail = submissionData.worker_email;
+      const payableAmount = submissionData.payable_amount;
+
+      try {
+        // Insert the submission data
+        const submissionResult = await submissionCollection.insertOne(
+          submissionData
+        );
+
+        // Update the worker's coin balance
+        const updateResult = await userCollection.updateOne(
+          { email: workerEmail },
+          { $inc: { coins: payableAmount } } // Increment the coins by payable amount
+        );
+
+        if (updateResult.modifiedCount === 1) {
+          res.send({
+            message: "Submission successful and coins updated",
+            submissionId: submissionResult.insertedId,
+          });
+        } else {
+          res.status(500).send({ message: "Failed to update worker's coins" });
+        }
+      } catch (error) {
+        console.error("Submission failed", error);
+        res.status(500).send({ message: "Submission failed", error });
+      }
     });
+
     app.get("/submission", async (req, res) => {
       const result = await submissionCollection.find().toArray();
       res.send(result);
@@ -250,6 +281,20 @@ async function run() {
       };
       const result = await submissionCollection.find(query, options).toArray();
       res.send(result);
+    });
+
+    app.get("/submissionCount/:email", async (req, res) => {
+      const email = req.params.email;
+      try {
+        const count = await submissionCollection.countDocuments({
+          worker_email: email,
+        });
+        res.send({ count });
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch submission count", error });
+      }
     });
     await client.db("admin").command({ ping: 1 });
     console.log(
