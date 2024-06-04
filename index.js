@@ -230,27 +230,8 @@ async function run() {
 
     // Get all tasks from db
     app.get("/tasks", async (req, res) => {
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 6;
-      const skip = (page - 1) * limit;
-
-      try {
-        const tasks = await tasksCollection
-          .find({})
-          .skip(skip)
-          .limit(limit)
-          .toArray();
-        const totalTasks = await tasksCollection.countDocuments();
-        const totalPages = Math.ceil(totalTasks / limit);
-
-        res.send({
-          tasks,
-          totalPages,
-          currentPage: page,
-        });
-      } catch (error) {
-        res.status(500).send({ message: "Failed to fetch tasks", error });
-      }
+      const result = await tasksCollection.find().toArray();
+      res.send(result);
     });
     // Get one tasks from db
     app.get("/tasks/:id", async (req, res) => {
