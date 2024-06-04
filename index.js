@@ -3,7 +3,7 @@ const app = express();
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 require("dotenv").config();
-// const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 //middleware
 //Must remove "/" from your production URL
@@ -250,12 +250,54 @@ async function run() {
       const result = await tasksCollection.find(query, options).toArray();
       res.send(result);
     });
+    // app.delete("/tasks/:id", async (req, res) => {
+    //   const id = req.params.id;
+    //   const query = { _id: new ObjectId(id) };
+    //   const result = await tasksCollection.deleteOne(query);
+    //   res.send(result);
+    // });
+
     app.delete("/tasks/:id", async (req, res) => {
       const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await tasksCollection.deleteOne(query);
-      res.send(result);
+      const { taskCreatorEmail, taskQuantity, payableAmount } = req.body;
+
+      const session = client.startSession();
+      try {
+        session.startTransaction();
+
+        // Delete the task
+        const taskDeletionResult = await tasksCollection.deleteOne(
+          { _id: new ObjectId(id) },
+          { session }
+        );
+
+        // Calculate the total coins to be added
+        const coinsToAdd = taskQuantity * payableAmount;
+
+        // Increment the task creator's coins
+        const userUpdateResult = await userCollection.updateOne(
+          { email: taskCreatorEmail },
+          { $inc: { coins: coinsToAdd } },
+          { session }
+        );
+
+        if (
+          taskDeletionResult.deletedCount === 1 &&
+          userUpdateResult.modifiedCount === 1
+        ) {
+          await session.commitTransaction();
+          res.send({ message: "Task deleted and coins updated successfully" });
+        } else {
+          throw new Error("Task deletion or coin update failed");
+        }
+      } catch (error) {
+        await session.abortTransaction();
+        res.status(500).send({ message: "Task deletion failed", error });
+      } finally {
+        session.endSession();
+      }
     });
+
     app.put("/tasks/:id", async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
@@ -435,6 +477,66 @@ async function run() {
       withdrawData.createdAt = new Date();
       const result = await withdrawCollection.insertOne(withdrawData);
       res.send(result);
+    });
+
+    app.post("/withdraw/complete", async (req, res) => {
+      const { withdrawId, workerEmail, withdrawCoin } = req.body;
+
+      const session = client.startSession();
+      try {
+        session.startTransaction();
+
+        // Delete the withdrawal request
+        const deleteResult = await withdrawCollection.deleteOne(
+          { _id: new ObjectId(withdrawId) },
+          { session }
+        );
+
+        // Deduct coins from the user's account
+        const updateResult = await userCollection.updateOne(
+          { email: workerEmail },
+          { $inc: { coins: -withdrawCoin } },
+          { session }
+        );
+
+        if (
+          deleteResult.deletedCount !== 1 ||
+          updateResult.modifiedCount !== 1
+        ) {
+          throw new Error("Failed to complete the withdrawal process");
+        }
+
+        await session.commitTransaction();
+        res.send({
+          success: true,
+          message: "Withdrawal completed successfully",
+        });
+      } catch (error) {
+        await session.abortTransaction();
+        res.status(500).send({ success: false, message: error.message });
+      } finally {
+        session.endSession();
+      }
+    });
+
+    //payment related api
+
+    //payment-intent
+    // payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { price } = req.body;
+      const amount = parseInt(price * 100);
+      // console.log(amount, "amount inside the intent");
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amount,
+        currency: "usd",
+        payment_method_types: ["card"],
+      });
+
+      res.send({
+        clientSecret: paymentIntent.client_secret,
+      });
     });
 
     await client.db("admin").command({ ping: 1 });
