@@ -423,6 +423,20 @@ async function run() {
           .send({ message: "Failed to fetch submission count", error });
       }
     });
+
+    //withdraw collection
+    app.get("/withdraw", async (req, res) => {
+      const result = await withdrawCollection.find().toArray();
+      res.send(result);
+    });
+
+    app.post("/withdraw", async (req, res) => {
+      const withdrawData = req.body;
+      withdrawData.createdAt = new Date();
+      const result = await withdrawCollection.insertOne(withdrawData);
+      res.send(result);
+    });
+
     await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
