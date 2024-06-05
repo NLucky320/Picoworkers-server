@@ -41,6 +41,7 @@ async function run() {
       .db("picoworker")
       .collection("submission");
     const withdrawCollection = client.db("picoworker").collection("withdraw");
+    const buyCoinsCollection = client.db("picoworker").collection("buyCoins");
     const notificationCollection = client
       .db("picoworker")
       .collection("notification");
@@ -517,6 +518,11 @@ async function run() {
       } finally {
         session.endSession();
       }
+    });
+
+    app.get("/buy", async (req, res) => {
+      const result = await buyCoinsCollection.find().toArray();
+      res.send(result);
     });
 
     //payment related api
