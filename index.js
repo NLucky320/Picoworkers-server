@@ -524,25 +524,49 @@ async function run() {
       const result = await buyCoinsCollection.find().toArray();
       res.send(result);
     });
+    app.get("/buy/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await buyCoinsCollection.findOne(query);
+      res.send(result);
+    });
 
     //payment related api
 
     //payment-intent
-    // payment intent
     app.post("/create-payment-intent", async (req, res) => {
       const { price } = req.body;
+      if (!price || isNaN(price)) {
+        return res.status(400).send({ error: "Invalid price value" });
+      }
       const amount = parseInt(price * 100);
-      // console.log(amount, "amount inside the intent");
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount,
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
 
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: amount,
-        currency: "usd",
-        payment_method_types: ["card"],
-      });
-
-      res.send({
-        clientSecret: paymentIntent.client_secret,
-      });
+    app.post("/payments", async (req, res) => {
+      const payment = req.body;
+      const paymentResult = await paymentCollection.insertOne(payment);
+      console.log("payment info", payment);
+      res.send({ paymentResult });
+    });
+    app.get("/payments", async (req, res) => {
+      const result = await paymentCollection.find().toArray();
+      res.send(result);
+    });
+    app.get("/payments/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result);
     });
 
     await client.db("admin").command({ ping: 1 });
