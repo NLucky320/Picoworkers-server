@@ -258,45 +258,35 @@ async function run() {
     //   res.send(result);
     // });
 
+    const { ObjectId } = require("mongodb");
+
     app.delete("/tasks/:id", async (req, res) => {
       const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
       const { taskCreatorEmail, taskQuantity, payableAmount } = req.body;
 
-      const session = client.startSession();
-      try {
-        session.startTransaction();
+      // Delete the task
+      const taskDeletionResult = await tasksCollection.deleteOne(query);
 
-        // Delete the task
-        const taskDeletionResult = await tasksCollection.deleteOne(
-          { _id: new ObjectId(id) },
-          { session }
-        );
-
-        // Calculate the total coins to be added
-        const coinsToAdd = taskQuantity * payableAmount;
-
-        // Increment the task creator's coins
-        const userUpdateResult = await userCollection.updateOne(
-          { email: taskCreatorEmail },
-          { $inc: { coins: coinsToAdd } },
-          { session }
-        );
-
-        if (
-          taskDeletionResult.deletedCount === 1 &&
-          userUpdateResult.modifiedCount === 1
-        ) {
-          await session.commitTransaction();
-          res.send({ message: "Task deleted and coins updated successfully" });
-        } else {
-          throw new Error("Task deletion or coin update failed");
-        }
-      } catch (error) {
-        await session.abortTransaction();
-        res.status(500).send({ message: "Task deletion failed", error });
-      } finally {
-        session.endSession();
+      if (taskDeletionResult.deletedCount === 0) {
+        return res.status(404).json({ message: "Task not found" });
       }
+
+      // Calculate the total coins to be added
+      const coinsToAdd = taskQuantity * payableAmount;
+
+      // Increment the task creator's coins
+      const userUpdateResult = await userCollection.updateOne(
+        { email: taskCreatorEmail },
+        { $inc: { coins: coinsToAdd } }
+      );
+
+      // Send success response
+      res.status(200).json({
+        message: "Task deleted and user's coins updated",
+        taskDeletionResult,
+        userUpdateResult,
+      });
     });
 
     app.put("/tasks/:id", async (req, res) => {
@@ -446,6 +436,23 @@ async function run() {
           })
           .toArray();
         res.send(result);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch approved submissions", error });
+      }
+    });
+    app.get("/approvalSubmissions/:email", async (req, res) => {
+      const email = req.params.email;
+      try {
+        const result = await submissionCollection
+          .find({
+            taskCreator_email: email,
+            status: "approved",
+          })
+          .toArray();
+        res.send(result);
+        console.log(result);
       } catch (error) {
         res
           .status(500)
