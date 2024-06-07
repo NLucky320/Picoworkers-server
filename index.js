@@ -558,17 +558,66 @@ async function run() {
         res.status(500).send({ error: error.message });
       }
     });
-
     app.post("/payments", async (req, res) => {
       const payment = req.body;
-      const paymentResult = await paymentCollection.insertOne(payment);
-      console.log("payment info", payment);
-      res.send({ paymentResult });
+      const query = { email: payment.email };
+
+      try {
+        // Insert the payment document into the payment collection
+        const paymentResult = await paymentCollection.insertOne(payment);
+        console.log("payment info", payment);
+
+        // Update the user's coin balance in the user collection using the $inc operator with upsert option
+        const updateResult = await userCollection.updateOne(
+          query,
+          { $inc: { coins: payment.coins } },
+          { upsert: true }
+        );
+
+        res.send({
+          paymentResult,
+          updateResult,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Failed to process payment", error });
+      }
     });
+
+    // app.post("/payments", async (req, res) => {
+    //   const payment = req.body;
+    //   const paymentResult = await paymentCollection.insertOne(payment);
+    //   console.log("payment info", payment);
+    //   res.send({ paymentResult });
+    // });
     app.get("/payments", async (req, res) => {
       const result = await paymentCollection.find().toArray();
       res.send(result);
     });
+    app.get("/paymentsStats", async (req, res) => {
+      try {
+        const totalPaymentsAggregate = await paymentCollection
+          .aggregate([
+            {
+              $group: {
+                _id: null,
+                totalAmount: { $sum: "$price" },
+              },
+            },
+          ])
+          .toArray();
+
+        const totalAmount =
+          totalPaymentsAggregate.length > 0
+            ? totalPaymentsAggregate[0].totalAmount
+            : 0;
+        res.send({ totalAmount });
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch payment stats", error });
+      }
+    });
+
     app.get("/payments/:email", async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
