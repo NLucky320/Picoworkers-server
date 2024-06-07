@@ -563,11 +563,9 @@ async function run() {
       const query = { email: payment.email };
 
       try {
-        // Insert the payment document into the payment collection
         const paymentResult = await paymentCollection.insertOne(payment);
-        console.log("payment info", payment);
+        // console.log("payment info", payment);
 
-        // Update the user's coin balance in the user collection using the $inc operator with upsert option
         const updateResult = await userCollection.updateOne(
           query,
           { $inc: { coins: payment.coins } },
@@ -623,6 +621,50 @@ async function run() {
       const query = { email: email };
       const result = await paymentCollection.find(query).toArray();
       res.send(result);
+    });
+
+    //top earners
+    app.get("/topEarners", async (req, res) => {
+      try {
+        const topEarners = await userCollection
+          .aggregate([
+            {
+              $lookup: {
+                from: "submission",
+                localField: "email",
+                foreignField: "worker_email",
+                as: "submissions",
+              },
+            },
+            {
+              $addFields: {
+                taskCompletionCount: { $size: "$submissions" },
+                totalEarnedCoins: { $sum: "$submissions.payable_amount" },
+              },
+            },
+            {
+              $sort: { totalEarnedCoins: -1 },
+            },
+            {
+              $limit: 10,
+            },
+            {
+              $project: {
+                name: 1,
+                email: 1,
+                profilePicture: "$image", // Assuming you have profilePicture field
+                availableCoins: "$coins",
+                taskCompletionCount: 1,
+                totalEarnedCoins: 1,
+              },
+            },
+          ])
+          .toArray();
+
+        res.send(topEarners);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to fetch top earners", error });
+      }
     });
 
     await client.db("admin").command({ ping: 1 });
