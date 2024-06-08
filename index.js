@@ -8,7 +8,11 @@ const port = process.env.PORT || 5000;
 //middleware
 //Must remove "/" from your production URL
 const corsOptions = {
-  origin: ["http://localhost:5173", "http://localhost:5174"],
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://assignment-12-27979.web.app",
+  ],
 };
 app.use(cors(corsOptions));
 app.use(cors());
