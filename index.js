@@ -9,8 +9,6 @@ const port = process.env.PORT || 5000;
 //Must remove "/" from your production URL
 const corsOptions = {
   origin: ["http://localhost:5173", "http://localhost:5174"],
-  credentials: true,
-  optionSuccessStatus: 200,
 };
 app.use(cors(corsOptions));
 app.use(cors());
@@ -49,34 +47,14 @@ async function run() {
     app.post("/jwt", async (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "365d",
+        expiresIn: "6h",
       });
-      res
-        .cookie("token", token, {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-        })
-        .send({ success: true });
+      res.send({ token });
     });
-    // Logout
-    app.get("/logout", async (req, res) => {
-      try {
-        res
-          .clearCookie("token", {
-            maxAge: 0,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-          })
-          .send({ success: true });
-        console.log("Logout successful");
-      } catch (err) {
-        res.status(500).send(err);
-      }
-    });
+
     // middlewares
     const verifyToken = (req, res, next) => {
-      // console.log("inside verify token", req.headers.authorization);
+      // console.log('inside verify token', req.headers.authorization);
       if (!req.headers.authorization) {
         return res.status(401).send({ message: "unauthorized access" });
       }
@@ -123,7 +101,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyToken, async (req, res) => {
       // console.log(req.headers);
       const result = await userCollection.find().toArray();
       res.send(result);
@@ -134,8 +112,22 @@ async function run() {
       const result = await userCollection.findOne({ email });
       res.send(result);
     });
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
 
-    app.get("/userStats", async (req, res) => {
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      let admin = false;
+      if (user) {
+        admin = user?.role === "admin";
+      }
+      res.send({ admin });
+    });
+    app.get("/userStats", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const users = await userCollection.find().toArray();
         const totalUsers = users.length;
@@ -224,12 +216,12 @@ async function run() {
     });
 
     // Get all tasks from db
-    app.get("/tasks", async (req, res) => {
+    app.get("/tasks", verifyToken, async (req, res) => {
       const result = await tasksCollection.find().toArray();
       res.send(result);
     });
     // Get one tasks from db
-    app.get("/tasks/:id", async (req, res) => {
+    app.get("/tasks/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await tasksCollection.findOne(query);
@@ -323,9 +315,40 @@ async function run() {
     //   res.send(result);
     // });
 
+    // app.post("/submission", async (req, res) => {
+    //   const submissionData = req.body;
+    //   const workerEmail = submissionData.worker_email;
+    //   const payableAmount = submissionData.payable_amount;
+
+    //   try {
+    //     // Insert the submission data
+    //     const submissionResult = await submissionCollection.insertOne(
+    //       submissionData
+    //     );
+
+    //     // Update the worker's coin balance
+    //     const updateResult = await userCollection.updateOne(
+    //       { email: workerEmail },
+    //       { $inc: { coins: payableAmount } } // Increment the coins by payable amount
+    //     );
+
+    //     if (updateResult.modifiedCount === 1) {
+    //       res.send({
+    //         message: "Submission successful and coins updated",
+    //         submissionId: submissionResult.insertedId,
+    //       });
+    //     } else {
+    //       res.status(500).send({ message: "Failed to update worker's coins" });
+    //     }
+    //   } catch (error) {
+    //     console.error("Submission failed", error);
+    //     res.status(500).send({ message: "Submission failed", error });
+    //   }
+    // });
     app.post("/submission", async (req, res) => {
       const submissionData = req.body;
       const workerEmail = submissionData.worker_email;
+      const taskCreatorEmail = submissionData.taskCreator_email;
       const payableAmount = submissionData.payable_amount;
 
       try {
@@ -340,9 +363,19 @@ async function run() {
           { $inc: { coins: payableAmount } } // Increment the coins by payable amount
         );
 
+        // Create a notification for the task creator
+        const notification = {
+          email: taskCreatorEmail,
+          message: `A new submission has been made for your task "${submissionData.task_title}".`,
+          read: false,
+          timestamp: new Date(),
+        };
+        await notificationCollection.insertOne(notification);
+
         if (updateResult.modifiedCount === 1) {
           res.send({
-            message: "Submission successful and coins updated",
+            message:
+              "Submission successful, coins updated, and notification sent",
             submissionId: submissionResult.insertedId,
           });
         } else {
@@ -354,10 +387,27 @@ async function run() {
       }
     });
 
-    app.get("/submission", async (req, res) => {
+    app.get("/submission", verifyToken, async (req, res) => {
       const result = await submissionCollection.find().toArray();
       res.send(result);
     });
+
+    // app.patch("/submission/:id", async (req, res) => {
+    //   const submissionId = req.params.id;
+    //   const { status } = req.body;
+
+    //   try {
+    //     const query = { _id: new ObjectId(submissionId) };
+    //     const update = { $set: { status } };
+    //     const result = await submissionCollection.updateOne(query, update);
+    //     res.send(result);
+    //   } catch (error) {
+    //     console.error("Error updating submission status:", error);
+    //     res
+    //       .status(500)
+    //       .send({ message: "Failed to update submission status", error });
+    //   }
+    // });
 
     app.patch("/submission/:id", async (req, res) => {
       const submissionId = req.params.id;
@@ -366,7 +416,21 @@ async function run() {
       try {
         const query = { _id: new ObjectId(submissionId) };
         const update = { $set: { status } };
+
         const result = await submissionCollection.updateOne(query, update);
+
+        // Fetch the submission to get worker details
+        const submission = await submissionCollection.findOne(query);
+
+        // Save the notification
+        const notification = {
+          email: submission.worker_email,
+          message: `Your task "${submission.task_title}" has been ${status}.`,
+          read: false,
+          timestamp: new Date(),
+        };
+        await notificationCollection.insertOne(notification);
+
         res.send(result);
       } catch (error) {
         console.error("Error updating submission status:", error);
@@ -375,7 +439,8 @@ async function run() {
           .send({ message: "Failed to update submission status", error });
       }
     });
-    app.get("/mySubmission/:email", async (req, res) => {
+
+    app.get("/mySubmission/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 10;
@@ -402,7 +467,7 @@ async function run() {
       }
     });
 
-    app.get("/myWork/:email", async (req, res) => {
+    app.get("/myWork/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { taskCreator_email: email };
       const options = {
@@ -420,7 +485,7 @@ async function run() {
     //   const result = await submissionCollection.find(query, options).toArray();
     //   res.send(result);
     // });
-    app.get("/approvedSubmissions/:email", async (req, res) => {
+    app.get("/approvedSubmissions/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       try {
         const result = await submissionCollection
@@ -436,7 +501,7 @@ async function run() {
           .send({ message: "Failed to fetch approved submissions", error });
       }
     });
-    app.get("/approvalSubmissions/:email", async (req, res) => {
+    app.get("/approvalSubmissions/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       try {
         const result = await submissionCollection
@@ -454,7 +519,7 @@ async function run() {
       }
     });
 
-    app.get("/submissionCount/:email", async (req, res) => {
+    app.get("/submissionCount/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       try {
         const count = await submissionCollection.countDocuments({
@@ -469,7 +534,7 @@ async function run() {
     });
 
     //withdraw collection
-    app.get("/withdraw", async (req, res) => {
+    app.get("/withdraw", verifyToken, async (req, res) => {
       const result = await withdrawCollection.find().toArray();
       res.send(result);
     });
@@ -521,11 +586,11 @@ async function run() {
       }
     });
 
-    app.get("/buy", async (req, res) => {
+    app.get("/buy", verifyToken, async (req, res) => {
       const result = await buyCoinsCollection.find().toArray();
       res.send(result);
     });
-    app.get("/buy/:id", async (req, res) => {
+    app.get("/buy/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await buyCoinsCollection.findOne(query);
@@ -581,11 +646,11 @@ async function run() {
     //   console.log("payment info", payment);
     //   res.send({ paymentResult });
     // });
-    app.get("/payments", async (req, res) => {
+    app.get("/payments", verifyToken, async (req, res) => {
       const result = await paymentCollection.find().toArray();
       res.send(result);
     });
-    app.get("/paymentsStats", async (req, res) => {
+    app.get("/paymentsStats", verifyToken, async (req, res) => {
       try {
         const totalPaymentsAggregate = await paymentCollection
           .aggregate([
@@ -610,7 +675,7 @@ async function run() {
       }
     });
 
-    app.get("/payments/:email", async (req, res) => {
+    app.get("/payments/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
       const query = { email: email };
       const result = await paymentCollection.find(query).toArray();
@@ -646,8 +711,7 @@ async function run() {
               $project: {
                 name: 1,
                 email: 1,
-                profilePicture: "$image", // Assuming you have profilePicture field
-                availableCoins: "$coins",
+                profilePicture: "$image",
                 taskCompletionCount: 1,
                 totalEarnedCoins: 1,
               },
@@ -661,10 +725,52 @@ async function run() {
       }
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    //notification collection
+
+    app.post("/notifications", async (req, res) => {
+      const notification = req.body;
+      try {
+        const result = await notificationCollection.insertOne(notification);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to save notification", error });
+      }
+    });
+
+    app.get("/notifications", verifyToken, async (req, res) => {
+      try {
+        const notifications = await notificationCollection
+          .find()
+          .sort({ timestamp: -1 })
+          .toArray();
+        res.send(notifications);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch notifications", error });
+      }
+    });
+
+    // Get notifications for a specific user
+    app.get("/notifications/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      try {
+        const notifications = await notificationCollection
+          .find({ email: email })
+          .sort({ timestamp: -1 })
+          .toArray();
+        res.send(notifications);
+      } catch (error) {
+        res
+          .status(500)
+          .send({ message: "Failed to fetch notifications", error });
+      }
+    });
+
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // Ensures that the client will close when you finish/error
     // await client.close();
